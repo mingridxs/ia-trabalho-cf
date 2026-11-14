@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulador de Colônia de Formigas — Rota de Entregas</title>
+  <meta name="description" content="Simulador de otimização por colônia de formigas (Ant System) para planejar uma rota de entregas.">
+  <meta name="theme-color" content="#2b1d0e">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script>
+    // Define o tema antes de desenhar a página: escolha salva ou preferência do sistema.
+    (function () {
+      var tema = null;
+      try { tema = localStorage.getItem('tema'); } catch (e) {}
+      if (tema !== 'claro' && tema !== 'escuro') {
+        tema = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'escuro' : 'claro';
+      }
+      document.documentElement.dataset.tema = tema;
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <header class="topo">
+    <div class="marca">
+      <img src="favicon.svg" alt="" width="44" height="44">
+      <div>
+        <h1>Simulador de Colônia de Formigas</h1>
+        <p>Rota de entregas com a variante Ant System · Inteligência Artificial · UFPI 2026.2</p>
+      </div>
+    </div>
+    <div class="acoes-topo">
+      <button type="button" id="btnTema" class="botao-topo" aria-pressed="false">🌙 Modo noturno</button>
+      <a class="botao-topo" href="https://github.com/mingridxs/ia-trabalho-cf" target="_blank" rel="noopener">Código-fonte no GitHub</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="painel">
+      <section class="cartao area-controles" id="secControles">
+        <div class="controles">
+          <button type="button" id="btnExecutar">▶ Executar</button>
+          <button type="button" id="btnPausar">⏸ Pausar</button>
+          <button type="button" id="btnAvancar">⏭ Avançar uma iteração</button>
+          <button type="button" id="btnReiniciar" class="secundario">↺ Reiniciar</button>
+        </div>
+        <div class="controles opcoes">
+          <label class="inline">Intervalo entre iterações
+            <input id="intervalo" type="range" min="0" max="1500" step="50" value="400">
+            <span id="intervaloTxt">400 ms</span>
+          </label>
+        </div>
+        <p id="status" class="status" role="status"></p>
+        <ul id="erros" class="erros" role="alert"></ul>
+      </section>
+
+      <section class="cartao area-grafo" id="secGrafo">
+        <h2>Grafo de entregas</h2>
+        <p class="dica">Grafo completo e não direcionado. A <strong>distância</strong> de cada aresta é um custo fixo; o <strong>feromônio</strong> (τ) é atualizado pelo algoritmo a cada iteração e define a espessura da linha.</p>
+        <svg id="grafo" viewBox="0 0 640 440" role="img" aria-label="Grafo com os vértices, o depósito, as arestas com feromônio e a melhor rota"></svg>
+        <p class="legenda">
+          <span><i class="amostra fina"></i> pouco feromônio</span>
+          <span><i class="amostra grossa"></i> muito feromônio</span>
+          <span><i class="amostra rota"></i> melhor rota acumulada</span>
+          <span><i class="amostra dep"></i> depósito</span>
+        </p>
+        <p id="escala" class="dica" style="margin-top:6px"></p>
+        <label class="inline"><input id="mostrarTau" type="checkbox"> Mostrar o valor de τ sobre cada aresta</label>
+        <p id="infoAresta" class="info-aresta" aria-live="polite"></p>
+      </section>
+
+      <section class="metricas area-metricas">
+        <div class="metrica"><span>Iteração atual</span><strong id="mIteracao">–</strong></div>
+        <div class="metrica"><span>Menor distância da iteração</span><strong id="mMelhor">–</strong></div>
+        <div class="metrica"><span>Média das distâncias das formigas</span><strong id="mMedia">–</strong></div>
+        <div class="metrica destaque"><span>Melhor distância acumulada</span><strong id="mAcumulado">–</strong></div>
+      </section>
+
+      <section class="cartao area-melhor" id="secMelhor">
+        <h2 id="tituloMelhor">Melhor rota encontrada até agora</h2>
+        <div id="melhor"></div>
+      </section>
+
+      <div class="area-config">
+        <section class="cartao" id="secDados">
+          <h2>Vértices e depósito</h2>
+          <p class="dica">Coordenadas entre 0 e 1.000, com até duas casas decimais, na mesma unidade de distância. Mantenha entre 4 e 12 vértices, sem coordenadas repetidas.</p>
+          <table id="tabVertices">
+            <thead><tr><th>Identificador</th><th>x</th><th>y</th><th>Remover</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="controles" style="margin-top:10px">
+            <button type="button" id="btnAdicionar" class="secundario" style="margin-top:0">+ Adicionar vértice</button>
+            <button type="button" id="btnReferencia" class="secundario">Carregar instância da seção 6.1</button>
+          </div>
+          <div class="campo largo">
+            <label for="deposito">Depósito</label>
+            <select id="deposito" style="width:100%"></select>
+            <small>Vértice de partida e de retorno de todas as formigas.</small>
+          </div>
+        </section>
+
+        <section class="cartao" id="secParametros">
+          <h2>Parâmetros do algoritmo</h2>
+          <div class="grade-campos">
+            <div class="campo">
+              <label for="formigas">Número de formigas</label>
+              <input id="formigas" type="text" inputmode="numeric" value="10" autocomplete="off">
+              <small>Inteiro entre 1 e 100.</small>
+            </div>
+            <div class="campo">
+              <label for="iteracoes">Número de iterações</label>
+              <input id="iteracoes" type="text" inputmode="numeric" value="30" autocomplete="off">
+              <small>Inteiro entre 1 e 200.</small>
+            </div>
+            <div class="campo">
+              <label for="alfa">Influência do feromônio (α)</label>
+              <input id="alfa" type="text" inputmode="decimal" value="1" autocomplete="off">
+              <small>0 a 5. Com zero, o feromônio não influencia.</small>
+            </div>
+            <div class="campo">
+              <label for="beta">Influência da distância (β)</label>
+              <input id="beta" type="text" inputmode="decimal" value="2" autocomplete="off">
+              <small>0 a 5. Com zero, a distância não influencia.</small>
+            </div>
+            <div class="campo">
+              <label for="rho">Taxa de evaporação (ρ, em %)</label>
+              <input id="rho" type="text" inputmode="decimal" value="50" autocomplete="off">
+              <small>0% a 90%. 50% corresponde a ρ = 0,5.</small>
+            </div>
+            <div class="campo">
+              <label for="tau0">Feromônio inicial (τ₀)</label>
+              <input id="tau0" type="text" inputmode="decimal" value="1" autocomplete="off">
+              <small>0,01 a 100, igual em todas as arestas.</small>
+            </div>
+            <div class="campo">
+              <label for="Q">Constante de depósito (Q)</label>
+              <input id="Q" type="text" inputmode="decimal" value="14" autocomplete="off">
+              <small>0,01 a 10.000. Cada formiga deposita Q/L.</small>
+            </div>
+            <div class="campo">
+              <label for="semente">Semente aleatória</label>
+              <input id="semente" type="text" inputmode="numeric" value="42" autocomplete="off">
+              <small>Inteiro. Mesma semente, mesmos sorteios.</small>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="colunas">
+      <section class="cartao">
+        <h2>Evolução das distâncias</h2>
+        <canvas id="grafico" height="260"></canvas>
+        <p class="legenda-graf"><span class="l1">■ menor da iteração</span> <span class="l2">■ média das formigas</span> <span class="l3">■ melhor acumulada</span></p>
+      </section>
+      <section class="cartao">
+        <h2>Histórico por iteração</h2>
+        <div class="rolagem alto">
+          <table id="tabHistorico" class="dados">
+            <thead><tr><th>Iteração</th><th>Menor</th><th>Média</th><th>Melhor acumulada</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="histVazio" class="dica" style="margin-top:8px">Iteração 0: nenhuma rota calculada ainda.</p>
+      </section>
+    </div>
+
+    <div class="colunas">
+      <section class="cartao">
+        <h2>Arestas: distância e feromônio</h2>
+        <p class="dica">Toque em uma linha para destacar a aresta no grafo.</p>
+        <div class="rolagem alto">
+          <table id="tabArestas" class="dados">
+            <thead><tr><th>Aresta</th><th>Distância (fixa)</th><th>Feromônio τ (atual)</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="cartao">
+        <h2>Log da iteração</h2>
+        <div class="controles">
+          <label class="inline">Iteração
+            <select id="logIteracao"></select>
+          </label>
+          <label class="inline">Formiga detalhada
+            <select id="logFormiga"></select>
+          </label>
+          <label class="inline"><input id="logSeguir" type="checkbox" checked> acompanhar a iteração atual</label>
+        </div>
+        <pre id="log" class="log"></pre>
+        <p class="dica">Mostra a construção da rota (vértice atual, candidatos, probabilidades, escolhido e retorno), o comprimento de cada rota e, para cada aresta, o feromônio anterior, após a evaporação, o depósito e o valor final. Ficam guardados os logs das 40 iterações mais recentes.</p>
+      </section>
+    </div>
+
+    <section class="cartao">
+      <h2>Testes de validação (seção 6 do enunciado)</h2>
+      <p class="dica">Roda os testes 6.1 a 6.5 com as mesmas funções usadas pelo simulador, sem alterar a execução em andamento.</p>
+      <button type="button" id="btnTestes" class="secundario">Executar testes</button>
+      <pre id="saidaTestes" class="log"></pre>
+    </section>
+  </main>
+
+  <footer>
+    <p>Autores: Maria Ingrid Xavier Sousa e Carlos Henrique Reis Portela Leal · Atividade prática de Colônia de Formigas · UFPI</p>
+  </footer>
+
+  <script src="aco.js?v=1"></script>
+  <script src="testes.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
